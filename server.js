@@ -45,11 +45,16 @@ app.get('/api/generate-image', async (req, res) => {
   }
 });
 
-// Serve built React client in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, 'client/dist')));
+// Health check — used by Railway to verify the service is up
+app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+// Serve built React client in production (only when client/dist exists — not on Railway)
+const distPath = path.join(__dirname, 'client/dist');
+const fs = require('fs');
+if (process.env.NODE_ENV === 'production' && fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
   app.get('*', (_req, res) => {
-    res.sendFile(path.join(__dirname, 'client/dist/index.html'));
+    res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
