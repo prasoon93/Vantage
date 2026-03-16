@@ -198,6 +198,7 @@ wss.on('connection', async (clientWs) => {
 
                 const exchanges = Math.floor(conversationHistory.filter(t => t.role === 'model').length);
                 console.log(`[Server] conversation: ${conversationHistory.length} turns, ${exchanges} model exchanges`);
+                console.log(`[Server] modelBuffer preview: "${completedModelText.slice(0, 120)}"`);
 
                 send(clientWs, { type: 'turn_complete' });
 
