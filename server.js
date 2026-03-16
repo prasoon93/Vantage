@@ -202,10 +202,11 @@ wss.on('connection', async (clientWs) => {
 
                 send(clientWs, { type: 'turn_complete' });
 
-                // Only trigger Model 2 when Model 1's turn contains a numbered location list
-                const modelIsListingLocations = isModelTurn
-                  && /\b1[.)]\s/.test(completedModelText)
-                  && /\b2[.)]\s/.test(completedModelText);
+                // Trigger Model 2 when: numbered list detected OR model gives a long response after 3+ exchanges
+                const hasNumberedList = /\b1[.)]\s/.test(completedModelText) && /\b2[.)]\s/.test(completedModelText);
+                const isLongResponseLate = exchanges >= 3 && completedModelText.length > 150;
+                const modelIsListingLocations = isModelTurn && (hasNumberedList || isLongResponseLate);
+                console.log(`[Server] listing check — numbered:${hasNumberedList} longLate:${isLongResponseLate} len:${completedModelText.length}`);
 
                 if (modelIsListingLocations && !isExtracting && !locationsFound) {
                   isExtracting = true;
