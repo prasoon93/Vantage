@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   // VITE_BASE_PATH should be set to "/repo-name" for GitHub Pages (e.g. "/Vantage")
-  base: process.env.VITE_BASE_PATH || '/',
+  base: (process.env.VITE_BASE_PATH || '/').replace(/([^/])$/, '$1/'),
   plugins: [react()],
   server: {
     port: 5173,
