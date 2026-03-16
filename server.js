@@ -9,10 +9,16 @@ const placesRouter = require('./server/routes/places');
 const mapThumbRouter = require('./server/routes/mapThumb');
 const { LIVE_CONFIG, TOOLS } = require('./server/gemini/config');
 
+const cors = require('cors');
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// Allow requests from GitHub Pages and localhost in dev
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGIN || '*',
+}));
 app.use(express.json());
 app.use('/api/places', placesRouter);
 app.use('/api/map-thumb', mapThumbRouter);

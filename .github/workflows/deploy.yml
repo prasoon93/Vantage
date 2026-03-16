@@ -1,0 +1,42 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        run: npm ci
+        working-directory: client
+
+      - name: Build
+        run: npm run build
+        working-directory: client
+        env:
+          # Set to /your-repo-name for GitHub Pages (e.g. /Vantage)
+          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH }}
+          # Point to your deployed backend (e.g. wss://scout-api.railway.app)
+          VITE_WS_URL: ${{ vars.VITE_WS_URL }}
+          # Point to your deployed backend API (e.g. https://scout-api.railway.app)
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: client/dist

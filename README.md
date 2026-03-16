@@ -29,7 +29,7 @@ Describe your scene — SCOUT listens, understands, and surfaces the perfect rea
 ### 2. Setup
 
 ```bash
-cd Google-Hackathon
+cd Vantage
 npm install
 cp .env.example .env
 # Edit .env — add your GOOGLE_API_KEY
@@ -95,7 +95,7 @@ Location Cards rendered + Places API photos fetched
 ## Project Structure
 
 ```
-Google-Hackathon/
+Vantage/
 ├── server.js          # Express server + WebSocket proxy to Gemini Live
 ├── package.json
 ├── .env               # Your API keys (not committed)

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { countryCodeToFlag, mapsUrl } from '../../utils/helpers';
+import { countryCodeToFlag, mapsUrl, getApiUrl } from '../../utils/helpers';
 import './LocationCard.css';
 
 function useLocationImage(searchQuery, lat, lng) {
@@ -12,7 +12,7 @@ function useLocationImage(searchQuery, lat, lng) {
     async function fetchImage() {
       try {
         // 1. Try Google Places photo
-        const res = await fetch(`/api/places/photo?query=${encodeURIComponent(searchQuery)}`);
+        const res = await fetch(getApiUrl(`/api/places/photo?query=${encodeURIComponent(searchQuery)}`));
         const data = await res.json();
         if (cancelled) return;
 
@@ -23,18 +23,18 @@ function useLocationImage(searchQuery, lat, lng) {
 
         // 2. Try satellite map thumbnail
         if (lat && lng) {
-          setImageUrl(`/api/map-thumb?lat=${lat}&lng=${lng}`);
+          setImageUrl(getApiUrl(`/api/map-thumb?lat=${lat}&lng=${lng}`));
           return;
         }
 
         // 3. AI-generated image fallback
-        setImageUrl(`/api/generate-image?query=${encodeURIComponent(searchQuery)}`);
+        setImageUrl(getApiUrl(`/api/generate-image?query=${encodeURIComponent(searchQuery)}`));
       } catch {
         if (cancelled) return;
         if (lat && lng) {
-          setImageUrl(`/api/map-thumb?lat=${lat}&lng=${lng}`);
+          setImageUrl(getApiUrl(`/api/map-thumb?lat=${lat}&lng=${lng}`));
         } else {
-          setImageUrl(`/api/generate-image?query=${encodeURIComponent(searchQuery)}`);
+          setImageUrl(getApiUrl(`/api/generate-image?query=${encodeURIComponent(searchQuery)}`));
         }
       } finally {
         if (!cancelled) setLoading(false);

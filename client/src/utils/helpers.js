@@ -13,11 +13,17 @@ export function mapsUrl(lat, lng, name) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name)}`;
 }
 
-/** WebSocket URL — direct to server in dev, same host in production */
+/** WebSocket URL — uses VITE_WS_URL in production (required for GitHub Pages) */
 export function getWsUrl() {
-  if (import.meta.env.DEV) {
-    return 'ws://localhost:3000';
-  }
+  if (import.meta.env.DEV) return 'ws://localhost:3000';
+  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
+  // Fallback: same host (works when server & client are co-hosted)
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}`;
+}
+
+/** API base URL — uses VITE_API_URL in production (required for GitHub Pages) */
+export function getApiUrl(path) {
+  const base = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || '');
+  return `${base}${path}`;
 }
