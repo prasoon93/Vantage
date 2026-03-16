@@ -110,7 +110,7 @@ async function extractLocations(conversationHistory) {
     contents: `You are a data extraction assistant. Below is a conversation between a film director and a location scout called SCOUT.\n\n${transcript}\n\nThe Scout has already named specific real-world filming locations in the conversation above. Your job is to extract EXACTLY those locations (do not invent new ones) and call suggest_filming_locations with structured data for each location the Scout mentioned. Also extract the scene specs from what was discussed.`,
     config: {
       tools: TOOLS,
-      toolConfig: { functionCallingConfig: { mode } },
+      toolConfig: { functionCallingConfig: { mode: 'ANY' } },
     },
   });
 

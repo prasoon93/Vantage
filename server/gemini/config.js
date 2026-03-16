@@ -110,8 +110,8 @@ const LIVE_CONFIG = {
   systemInstruction: {
     parts: [{ text: SYSTEM_INSTRUCTION }],
   },
-  outputAudioTranscription: {},
-  inputAudioTranscription: {},
+  outputAudioTranscription: { enable: true },
+  inputAudioTranscription: { enable: true },
 };
 
 module.exports = { SYSTEM_INSTRUCTION, TOOLS, LIVE_CONFIG };
