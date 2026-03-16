@@ -100,19 +100,34 @@ app.post('/api/suggest-locations', async (req, res) => {
 
 // ─── Model 2: extract locations from conversation ────────────────────────────
 
-async function extractLocations(conversationHistory) {
+async function extractLocations(conversationHistory, retries = 3) {
   const transcript = conversationHistory
     .map((t) => `${t.role === 'user' ? 'Director' : 'Scout'}: ${t.text}`)
     .join('\n');
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: `You are a data extraction assistant. Below is a conversation between a film director and a location scout called SCOUT.\n\n${transcript}\n\nThe Scout has already named specific real-world filming locations in the conversation above. Your job is to extract EXACTLY those locations (do not invent new ones) and call suggest_filming_locations with structured data for each location the Scout mentioned. Also extract the scene specs from what was discussed.`,
-    config: {
-      tools: TOOLS,
-      toolConfig: { functionCallingConfig: { mode: 'ANY' } },
-    },
-  });
+  let response;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `You are a data extraction assistant. Below is a conversation between a film director and a location scout called SCOUT.\n\n${transcript}\n\nThe Scout has already named specific real-world filming locations in the conversation above. Your job is to extract EXACTLY those locations (do not invent new ones) and call suggest_filming_locations with structured data for each location the Scout mentioned. Also extract the scene specs from what was discussed.`,
+        config: {
+          tools: TOOLS,
+          toolConfig: { functionCallingConfig: { mode: 'ANY' } },
+        },
+      });
+      break;
+    } catch (err) {
+      const is429 = err?.message?.includes('429') || err?.status === 429;
+      if (is429 && attempt < retries) {
+        const delay = attempt * 20000;
+        console.log(`[Server] Model 2 rate limited, retrying in ${delay / 1000}s (attempt ${attempt}/${retries})`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
 
   const parts = response.candidates?.[0]?.content?.parts ?? [];
   const call = parts.find((p) => p.functionCall)?.functionCall;
