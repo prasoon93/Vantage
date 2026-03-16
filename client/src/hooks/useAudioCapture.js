@@ -25,7 +25,7 @@ export function useAudioCapture({ onChunk, onTranscript }) {
     });
 
     const ctx = new AudioContext({ sampleRate: 16000 });
-    await ctx.audioWorklet.addModule('/pcm-processor.js');
+    await ctx.audioWorklet.addModule(`${import.meta.env.BASE_URL}pcm-processor.js`);
 
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
