@@ -1,0 +1,92 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  border-bottom: 1px solid rgba(201, 162, 39, 0.15);
+  background: rgba(5, 5, 15, 0.9);
+  backdrop-filter: blur(20px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+.header__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header__logo {
+  color: var(--gold);
+  font-size: 1.4rem;
+}
+
+.header__title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  color: var(--gold);
+  margin: 0;
+}
+
+.header__sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.header__badges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Status badge */
+.header__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+}
+
+.header__status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.header__status--ready .header__status-dot { background: #4ade80; box-shadow: 0 0 6px #4ade8099; }
+.header__status--listening .header__status-dot { background: #e84040; box-shadow: 0 0 6px #e8404099; animation: pulse-dot 1s infinite; }
+.header__status--speaking .header__status-dot { background: var(--gold); box-shadow: 0 0 6px var(--gold-glow); animation: pulse-dot 0.8s infinite; }
+.header__status--connecting .header__status-dot { background: #60a5fa; animation: pulse-dot 1.2s infinite; }
+.header__status--disconnected .header__status-dot { background: #6b7280; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Gemini badge */
+.header__gemini-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #4285f420, #34a85320);
+  border: 1px solid rgba(66, 133, 244, 0.3);
+  color: #93c5fd;
+}

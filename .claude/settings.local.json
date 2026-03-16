@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(node -e \":*)",
+      "Bash(node -e \"const {GoogleGenAI} = require\\(''@google/genai''\\); const ai = new GoogleGenAI\\({apiKey:''test''}\\); const r = {}; console.log\\(typeof r.functionCalls\\);\")",
+      "Bash(node -e \"const pkg = require\\(''/Users/prasoonhari/Desktop/Google-Hackathon/node_modules/@google/genai/package.json''\\); console.log\\(pkg.version\\);\")",
+      "Bash(node --input-type=module -e \":*)"
+    ]
+  }
+}

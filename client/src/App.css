@@ -1,0 +1,74 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+/* Radial glow behind the interface */
+.app::after {
+  content: '';
+  position: fixed;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 400px;
+  background: radial-gradient(ellipse at center, rgba(201, 162, 39, 0.04) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Two-panel layout ── */
+.app__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Left panel ── */
+.app__left {
+  width: var(--panel-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  backdrop-filter: blur(20px);
+}
+
+/* ─── Right panel ── */
+.app__right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(180deg, #07071a 0%, #05050f 100%);
+}
+
+/* ─── Responsive ── */
+@media (max-width: 900px) {
+  .app__body {
+    flex-direction: column;
+  }
+
+  .app__left {
+    width: 100%;
+    flex-shrink: 0;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .app__right {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  html, body, #root {
+    overflow: auto;
+  }
+}

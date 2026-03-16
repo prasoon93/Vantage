@@ -2,327 +2,281 @@ require('dotenv').config();
 const express = require('express');
 const WebSocket = require('ws');
 const http = require('http');
-const fetch = require('node-fetch');
 const path = require('path');
+const { GoogleGenAI } = require('@google/genai');
+
+const placesRouter = require('./server/routes/places');
+const mapThumbRouter = require('./server/routes/mapThumb');
+const { LIVE_CONFIG, TOOLS } = require('./server/gemini/config');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
+app.use('/api/places', placesRouter);
+app.use('/api/map-thumb', mapThumbRouter);
+
+// ─── AI-generated location image ─────────────────────────────────────────────
+app.get('/api/generate-image', async (req, res) => {
+  const { query } = req.query;
+  if (!query) return res.status(400).json({ error: 'query required' });
+  try {
+    const interaction = await ai.interactions.create({
+      model: 'gemini-3-pro-image-preview',
+      input: `Cinematic film location photograph: ${query}. Wide establishing shot, photorealistic, professional cinematography, dramatic natural lighting.`,
+      response_modalities: ['image'],
+    });
+    const imageOutput = interaction.outputs?.find((o) => o.type === 'image');
+    if (!imageOutput) throw new Error('No image in response');
+    const buffer = Buffer.from(imageOutput.data, 'base64');
+    res.set('Content-Type', imageOutput.mime_type || 'image/png');
+    res.set('Cache-Control', 'public, max-age=3600');
+    return res.send(buffer);
+  } catch (err) {
+    console.error('[Server] generate-image error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Serve built React client in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'client/dist')));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'client/dist/index.html'));
+  });
+}
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
-
 if (!GOOGLE_API_KEY) {
   console.error('ERROR: GOOGLE_API_KEY is not set in .env file');
   process.exit(1);
 }
 
-const GEMINI_WS_URL = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${GOOGLE_API_KEY}`;
+const ai = new GoogleGenAI({ apiKey: GOOGLE_API_KEY });
 
-// ─── System Prompt ────────────────────────────────────────────────────────────
+// ─── Step 3: Extract structured locations from user's scene description ───────
+// Called when the user stops the mic; the user's transcribed speech is the input.
 
-const SYSTEM_INSTRUCTION = `You are SCOUT, an elite AI film location scout with decades of experience working alongside Hollywood's greatest directors — Nolan, Villeneuve, Spielberg, and more.
+app.post('/api/suggest-locations', async (req, res) => {
+  const { query } = req.body;
+  if (!query?.trim()) return res.status(400).json({ error: 'query required' });
 
-Your mission: help movie directors find the perfect real-world filming locations for their scenes.
-
-PERSONALITY:
-- Passionate, cinematic, and authoritative
-- You speak with the confidence of someone who has scouted every corner of the globe
-- Reference real films, cinematographers, and directors to build rapport
-- Be concise — the location cards will show the details
-
-WORKFLOW:
-1. When a director describes a scene, listen for: visual atmosphere, time period, emotional tone, architecture style, lighting conditions, climate, and any practical needs
-2. After their first description (or at most one clarifying question), call suggest_filming_locations
-3. Keep your spoken response SHORT and evocative — paint a verbal picture, then let the cards do the work
-4. If they want different options or refine their vision, call suggest_filming_locations again immediately
-
-LOCATION QUALITY RULES:
-- Only suggest REAL, verifiable filming locations with accurate details
-- Include real films/TV shows actually shot at those places
-- Provide specific search queries for accurate image retrieval (e.g., "Chefchaouen Morocco blue medina streets" not just "Morocco")
-- Coordinates must be real and accurate
-
-INTERRUPTION HANDLING:
-You can be interrupted at any time. If the director changes direction mid-sentence, immediately adapt and call suggest_filming_locations with the updated concept.
-
-EXAMPLE INTERACTION:
-Director: "I need something for a Cold War spy scene — Eastern European, run-down, foggy, paranoid atmosphere"
-You: "Perfect — I'm thinking Prague's Old Town at dawn, Warsaw's Praga district... Let me pull up your options." [call suggest_filming_locations]`;
-
-// ─── Tool Definitions ─────────────────────────────────────────────────────────
-
-const TOOLS = [
-  {
-    functionDeclarations: [
-      {
-        name: 'suggest_filming_locations',
-        description:
-          'Suggest 3–5 specific real-world filming locations based on the director\'s scene description. Call this as soon as you have enough context to make meaningful recommendations.',
-        parameters: {
-          type: 'OBJECT',
-          properties: {
-            scene_summary: {
-              type: 'STRING',
-              description: 'A brief summary of the scene/mood the director described',
-            },
-            locations: {
-              type: 'ARRAY',
-              description: 'Array of 3–5 location suggestions',
-              items: {
-                type: 'OBJECT',
-                properties: {
-                  name: { type: 'STRING', description: 'Specific location name (e.g., "Deinhardstein Castle" or "Rue Crémieux")' },
-                  city: { type: 'STRING' },
-                  country: { type: 'STRING' },
-                  country_code: { type: 'STRING', description: 'ISO 2-letter country code for flag emoji (e.g., "FR", "JP", "MA")' },
-                  lat: { type: 'NUMBER', description: 'Latitude coordinate' },
-                  lng: { type: 'NUMBER', description: 'Longitude coordinate' },
-                  tagline: { type: 'STRING', description: 'A short, evocative phrase for this location (e.g., "Where shadows tell stories")' },
-                  why_it_works: { type: 'STRING', description: 'Cinematic reason this location matches the scene perfectly' },
-                  famous_productions: {
-                    type: 'ARRAY',
-                    items: { type: 'STRING' },
-                    description: 'Real films or TV shows actually shot at this location',
-                  },
-                  best_shooting_time: { type: 'STRING', description: 'Best season and time of day for shooting' },
-                  practical_notes: { type: 'STRING', description: 'Permit requirements, crew access, logistical notes' },
-                  visual_tags: {
-                    type: 'ARRAY',
-                    items: { type: 'STRING' },
-                    description: 'Visual descriptor tags (e.g., "gothic", "golden hour", "misty", "urban decay")',
-                  },
-                  search_query: {
-                    type: 'STRING',
-                    description: 'Specific Google Places search query to fetch an accurate photo (e.g., "Chefchaouen blue streets Morocco" or "Hashima Island Japan abandoned")',
-                  },
-                },
-                required: ['name', 'city', 'country', 'country_code', 'tagline', 'why_it_works', 'search_query'],
-              },
-            },
-          },
-          required: ['locations'],
-        },
-      },
-    ],
-  },
-];
-
-// ─── Gemini Live API Setup Message ────────────────────────────────────────────
-
-const SETUP_MESSAGE = {
-  setup: {
-    model: 'models/gemini-live-2.0-flash-001',
-    generationConfig: {
-      responseModalities: ['AUDIO'],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: 'Aoede',
-          },
-        },
-      },
-    },
-    systemInstruction: {
-      parts: [{ text: SYSTEM_INSTRUCTION }],
-    },
-    tools: TOOLS,
-  },
-};
-
-// ─── Google Places API — fetch location photo ─────────────────────────────────
-
-app.get('/api/places/photo', async (req, res) => {
   try {
-    const { query } = req.query;
-    if (!query) return res.status(400).json({ error: 'query is required' });
-
-    // Step 1: Text search for the place
-    const searchRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': GOOGLE_API_KEY,
-        'X-Goog-FieldMask': 'places.displayName,places.photos,places.formattedAddress,places.location',
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `A film director described this scene: "${query}"\n\nSuggest the best real-world filming locations for it.`,
+      config: {
+        tools: TOOLS,
+        toolConfig: { functionCallingConfig: { mode: 'ANY' } },
       },
-      body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
     });
 
-    const data = await searchRes.json();
-
-    if (data.places && data.places[0] && data.places[0].photos && data.places[0].photos[0]) {
-      const photoName = data.places[0].photos[0].name;
-      const photoUrl = `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=900&key=${GOOGLE_API_KEY}`;
-      res.json({
-        photoUrl,
-        address: data.places[0].formattedAddress || '',
-      });
+    const parts = response.candidates?.[0]?.content?.parts ?? [];
+    console.log('[Gemini] suggest-locations parts:', JSON.stringify(parts, null, 2));
+    const calls = parts.filter((p) => p.functionCall).map((p) => p.functionCall);
+    if (calls.length) {
+      console.log('[Gemini] function calls:', JSON.stringify(calls, null, 2));
+      res.json({ success: true, ...calls[0].args });
     } else {
-      // Fallback: return null, frontend will show a map placeholder
-      res.json({ photoUrl: null, address: '' });
+      res.json({ success: false, locations: [] });
     }
   } catch (err) {
-    console.error('Places API error:', err.message);
-    res.json({ photoUrl: null, address: '' });
+    console.error('[Server] suggest-locations error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ─── Google Maps Static API — map thumbnail ───────────────────────────────────
+// ─── Model 2: extract locations from conversation ────────────────────────────
 
-app.get('/api/map-thumb', (req, res) => {
-  const { lat, lng } = req.query;
-  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng required' });
-  const url = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=13&size=800x450&maptype=satellite&key=${GOOGLE_API_KEY}`;
-  res.redirect(url);
-});
+async function extractLocations(conversationHistory) {
+  const transcript = conversationHistory
+    .map((t) => `${t.role === 'user' ? 'Director' : 'Scout'}: ${t.text}`)
+    .join('\n');
 
-// ─── WebSocket Proxy to Gemini Live API ───────────────────────────────────────
-
-wss.on('connection', (clientWs) => {
-  console.log('[Server] Client connected');
-  let geminiWs = null;
-  let isAlive = true;
-
-  // Connect to Gemini Live API
-  geminiWs = new WebSocket(GEMINI_WS_URL);
-
-  geminiWs.on('open', () => {
-    console.log('[Server] Connected to Gemini Live API');
-    geminiWs.send(JSON.stringify(SETUP_MESSAGE));
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    contents: `You are a data extraction assistant. Below is a conversation between a film director and a location scout called SCOUT.\n\n${transcript}\n\nThe Scout has already named specific real-world filming locations in the conversation above. Your job is to extract EXACTLY those locations (do not invent new ones) and call suggest_filming_locations with structured data for each location the Scout mentioned. Also extract the scene specs from what was discussed.`,
+    config: {
+      tools: TOOLS,
+      toolConfig: { functionCallingConfig: { mode } },
+    },
   });
 
-  geminiWs.on('message', (rawData) => {
+  const parts = response.candidates?.[0]?.content?.parts ?? [];
+  const call = parts.find((p) => p.functionCall)?.functionCall;
+  if (!call) return null;
+  return call.args;
+}
+
+// ─── Step 1 & 2: WebSocket → Gemini Live (voice conversation) ────────────────
+
+wss.on('connection', async (clientWs) => {
+  console.log('[Server] Client connected');
+  let session = null;
+
+  // Per-session conversation state
+  const conversationHistory = []; // [{role:'user'|'model', text}] — one entry per full turn
+  let userBuffer      = '';   // accumulates user speech across multiple short utterances
+  let modelBuffer     = '';   // accumulates model speech for the current model turn
+  let isExtracting    = false;
+  let locationsFound  = false; // once set, stop re-extracting
+
+  try {
+    session = await ai.live.connect({
+      model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+      callbacks: {
+        onopen: () => console.log('[Server] Gemini Live connected'),
+
+        onmessage: (msg) => {
+          try {
+            if (msg.setupComplete) {
+              send(clientWs, { type: 'ready' });
+              return;
+            }
+
+            if (msg.serverContent) {
+              const { modelTurn, turnComplete, interrupted,
+                      outputTranscription, inputTranscription } = msg.serverContent;
+
+              // Accumulate transcriptions
+              if (inputTranscription?.text) {
+                userBuffer += inputTranscription.text;
+              }
+              if (outputTranscription?.text) {
+                modelBuffer += outputTranscription.text;
+              }
+
+              if (modelTurn?.parts) {
+                for (const part of modelTurn.parts) {
+                  if (part.inlineData) {
+                    send(clientWs, { type: 'audio', data: part.inlineData.data, mimeType: part.inlineData.mimeType });
+                  }
+                  if (part.text) {
+                    send(clientWs, { type: 'text', text: part.text });
+                  }
+                }
+              }
+
+              if (interrupted) {
+                modelBuffer = '';
+                send(clientWs, { type: 'interrupted' });
+              }
+
+              if (turnComplete) {
+                const isModelTurn = modelBuffer.trim().length > 0;
+
+                // Buffer user speech until model responds — produces one clean user entry per exchange
+                if (userBuffer.trim()) {
+                  // Don't push yet if the model hasn't responded (user spoke multiple times)
+                  if (isModelTurn) {
+                    // Commit accumulated user speech as one entry
+                    conversationHistory.push({ role: 'user', text: userBuffer.trim() });
+                    userBuffer = '';
+                  }
+                  // If no model text yet, keep buffering user speech
+                }
+
+                // Capture buffer content before clearing — needed for the list detection below
+                const completedModelText = modelBuffer.trim();
+
+                if (isModelTurn) {
+                  conversationHistory.push({ role: 'model', text: completedModelText });
+                  modelBuffer = '';
+                }
+
+                const exchanges = Math.floor(conversationHistory.filter(t => t.role === 'model').length);
+                console.log(`[Server] conversation: ${conversationHistory.length} turns, ${exchanges} model exchanges`);
+
+                send(clientWs, { type: 'turn_complete' });
+
+                // Only trigger Model 2 when Model 1's turn contains a numbered location list
+                const modelIsListingLocations = isModelTurn
+                  && /\b1[.)]\s/.test(completedModelText)
+                  && /\b2[.)]\s/.test(completedModelText);
+
+                if (modelIsListingLocations && !isExtracting && !locationsFound) {
+                  isExtracting = true;
+                  console.log(`[Server] Model 1 listed locations — running Model 2 extraction`);
+                  extractLocations(conversationHistory)
+                    .then((result) => {
+                      if (result?.locations?.length) {
+                        locationsFound = true;
+                        console.log('[Server] locations extracted:', result.locations.length);
+                        send(clientWs, {
+                          type: 'locations',
+                          locations: result.locations,
+                          scene_summary: result.scene_summary || '',
+                          specs: result.specs || null,
+                        });
+                      } else {
+                        console.log('[Server] Model 2 returned no locations');
+                      }
+                    })
+                    .catch((err) => console.error('[Server] extractLocations error:', err.message))
+                    .finally(() => { isExtracting = false; });
+                }
+              }
+            }
+          } catch (err) {
+            console.error('[Server] Message handling error:', err.message);
+          }
+        },
+
+        onerror: (err) => {
+          console.error('[Server] Gemini error:', err.message || err);
+          send(clientWs, { type: 'error', message: 'AI connection failed: ' + (err.message || err) });
+        },
+
+        onclose: (event) => {
+          console.log(`[Server] Gemini closed: ${event.code} ${event.reason}`);
+          if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+        },
+      },
+      config: LIVE_CONFIG,
+    });
+  } catch (err) {
+    console.error('[Server] Failed to connect to Gemini:', err.message);
+    send(clientWs, { type: 'error', message: 'Failed to connect to AI: ' + err.message });
+    clientWs.close();
+    return;
+  }
+
+  clientWs.on('message', (data) => {
+    if (!session) return;
     try {
-      const msg = JSON.parse(rawData.toString());
-
-      // Session ready
-      if (msg.setupComplete) {
-        console.log('[Server] Gemini setup complete');
-        if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(JSON.stringify({ type: 'ready' }));
-        }
-        return;
-      }
-
-      // Tool / function call
-      if (msg.toolCall) {
-        const call = msg.toolCall.functionCalls[0];
-        console.log('[Server] Tool call:', call.name);
-
-        // Forward tool call to browser for UI rendering
-        if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(
-            JSON.stringify({
-              type: 'tool_call',
-              name: call.name,
-              args: typeof call.args === 'string' ? JSON.parse(call.args) : call.args,
-              id: call.id,
-            })
-          );
-        }
-
-        // Acknowledge tool call back to Gemini immediately
-        const toolResponse = {
-          toolResponse: {
-            functionResponses: [
-              {
-                id: call.id,
-                response: { output: { success: true, message: 'Location cards displayed to director.' } },
-              },
-            ],
-          },
-        };
-        geminiWs.send(JSON.stringify(toolResponse));
-        return;
-      }
-
-      // Server turn content (audio / text)
-      if (msg.serverContent) {
-        const content = msg.serverContent;
-
-        // Audio parts
-        if (content.modelTurn && content.modelTurn.parts) {
-          for (const part of content.modelTurn.parts) {
-            if (part.inlineData) {
-              if (clientWs.readyState === WebSocket.OPEN) {
-                clientWs.send(
-                  JSON.stringify({
-                    type: 'audio',
-                    data: part.inlineData.data,
-                    mimeType: part.inlineData.mimeType,
-                  })
-                );
-              }
-            }
-            if (part.text) {
-              if (clientWs.readyState === WebSocket.OPEN) {
-                clientWs.send(JSON.stringify({ type: 'text', text: part.text }));
-              }
-            }
-          }
-        }
-
-        // Turn complete signal
-        if (content.turnComplete) {
-          if (clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(JSON.stringify({ type: 'turn_complete' }));
-          }
-        }
-
-        // Interrupted signal
-        if (content.interrupted) {
-          if (clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(JSON.stringify({ type: 'interrupted' }));
-          }
-        }
+      const msg = JSON.parse(data.toString());
+      if (msg.realtimeInput) {
+        const chunks = msg.realtimeInput.mediaChunks;
+        if (chunks?.length) session.sendRealtimeInput({ media: chunks });
       }
     } catch (err) {
-      console.error('[Server] Error parsing Gemini message:', err.message);
-    }
-  });
-
-  geminiWs.on('error', (err) => {
-    console.error('[Server] Gemini WS error:', err.message);
-    if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.send(JSON.stringify({ type: 'error', message: 'Connection to AI failed: ' + err.message }));
-    }
-  });
-
-  geminiWs.on('close', (code, reason) => {
-    console.log(`[Server] Gemini WS closed: ${code} ${reason}`);
-    if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.close();
-    }
-  });
-
-  // Relay messages from browser → Gemini (audio chunks, tool responses)
-  clientWs.on('message', (data) => {
-    if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
-      geminiWs.send(data);
+      console.error('[Server] Relay error:', err.message);
     }
   });
 
   clientWs.on('close', () => {
     console.log('[Server] Client disconnected');
-    isAlive = false;
-    if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
-      geminiWs.close();
-    }
+    session?.close();
+    session = null;
   });
 
   clientWs.on('error', (err) => {
     console.error('[Server] Client WS error:', err.message);
-    if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
-      geminiWs.close();
-    }
+    session?.close();
+    session = null;
   });
 });
 
-// ─── Start Server ─────────────────────────────────────────────────────────────
+function send(ws, data) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
+// ─── Start ────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`\n  SCOUT is running at http://localhost:${PORT}\n`);
+  console.log(`\n  SCOUT server → http://localhost:${PORT}\n`);
 });

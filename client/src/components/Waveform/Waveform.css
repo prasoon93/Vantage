@@ -1,0 +1,11 @@
+.waveform {
+  width: 100%;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.waveform__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
